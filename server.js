@@ -20,7 +20,10 @@ const userSchema = new mongoose.Schema({
   name: String,
   email: String,
   password: String,
-  role: { type: String, default: "sales" }
+  role: { type: String, default: "sales" },
+
+  // 🟢 SaaS CORE
+  companyId: String
 });
 
 const User = mongoose.model("User", userSchema);
@@ -32,7 +35,9 @@ const leadSchema = new mongoose.Schema({
   status: { type: String, default: "New" },
   assignedTo: String,
 
-  // 🟢 NOTES (NEW)
+  // 🟢 SaaS CORE
+  companyId: String,
+
   notes: [
     {
       text: String,
@@ -77,7 +82,8 @@ app.post("/login", async (req, res) => {
     {
       id: user._id,
       email: user.email,
-      role: user.role
+      role: user.role,
+      companyId: user.companyId   // 🟢 مهم
     },
     "secretkey",
     { expiresIn: "7d" }
@@ -95,26 +101,35 @@ app.post("/leads", auth, async (req, res) => {
     phone: req.body.phone,
     status: req.body.status || "New",
     assignedTo: req.user.email,
+
+    // 🟢 SaaS isolation
+    companyId: req.user.companyId,
+
     notes: []
   });
 
   res.json(lead);
 });
 
-// Get Leads
+// Get Leads (SaaS FILTER)
 app.get("/leads", auth, async (req, res) => {
   let leads;
 
   if (req.user.role === "admin") {
-    leads = await Lead.find();
+    leads = await Lead.find({
+      companyId: req.user.companyId
+    });
   } else {
-    leads = await Lead.find({ assignedTo: req.user.email });
+    leads = await Lead.find({
+      companyId: req.user.companyId,
+      assignedTo: req.user.email
+    });
   }
 
   res.json(leads);
 });
 
-// Update Lead (status / edit)
+// Update Lead
 app.put("/leads/:id", auth, async (req, res) => {
   const updated = await Lead.findByIdAndUpdate(
     req.params.id,
@@ -125,7 +140,7 @@ app.put("/leads/:id", auth, async (req, res) => {
   res.json(updated);
 });
 
-// ================= 🟢 ADD NOTE =================
+// ================= ADD NOTE =================
 app.put("/leads/:id/note", auth, async (req, res) => {
   const lead = await Lead.findById(req.params.id);
 
@@ -146,7 +161,7 @@ app.delete("/leads/:id", auth, async (req, res) => {
 
 // ================= SERVER =================
 app.get("/", (req, res) => {
-  res.send("CRM API Running 🚀");
+  res.send("CRM SaaS API Running 🚀");
 });
 
 app.listen(5000, () => {
