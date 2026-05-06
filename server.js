@@ -10,12 +10,12 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ================= MongoDB =================
+// ================= DB =================
 mongoose.connect(process.env.MONGO_URL)
   .then(() => console.log("MongoDB Connected 🚀"))
-  .catch(err => console.log("Mongo Error:", err));
+  .catch(err => console.log(err));
 
-// ================= USER =================
+// ================= MODELS =================
 const userSchema = new mongoose.Schema({
   name: String,
   email: { type: String, unique: true },
@@ -25,9 +25,6 @@ const userSchema = new mongoose.Schema({
   plan: { type: String, default: "free" }
 });
 
-const User = mongoose.model("User", userSchema);
-
-// ================= LEAD =================
 const leadSchema = new mongoose.Schema({
   name: String,
   phone: String,
@@ -37,63 +34,127 @@ const leadSchema = new mongoose.Schema({
   notes: [{ text: String, date: { type: Date, default: Date.now } }]
 });
 
+const User = mongoose.model("User", userSchema);
 const Lead = mongoose.model("Lead", leadSchema);
 
 // ================= AUTH =================
 const auth = (req, res, next) => {
   const token = req.headers.authorization;
+
   if (!token) return res.status(401).json({ message: "No token" });
 
   try {
-    req.user = jwt.verify(token, "secretkey");
+    const decoded = jwt.verify(token, "secretkey");
+    req.user = decoded;
     next();
   } catch {
-    res.status(401).json({ message: "Invalid token" });
+    return res.status(401).json({ message: "Invalid token" });
   }
 };
 
 // ================= LOGIN =================
 app.post("/login", async (req, res) => {
-  const user = await User.findOne(req.body);
+  const user = await User.findOne({
+    email: req.body.email,
+    password: req.body.password
+  });
 
-  if (!user) return res.status(401).json({ message: "Invalid login" });
+  if (!user) {
+    return res.status(401).json({ message: "Invalid login" });
+  }
 
-  const token = jwt.sign(user.toObject(), "secretkey", { expiresIn: "7d" });
+  const token = jwt.sign(
+    {
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      companyId: user.companyId,
+      plan: user.plan
+    },
+    "secretkey",
+    { expiresIn: "7d" }
+  );
 
   res.json({ user, token });
 });
 
-// ================= LEADS =================
+// ================= GET LEADS =================
 app.get("/leads", auth, async (req, res) => {
   const leads = await Lead.find({ companyId: req.user.companyId });
   res.json(leads);
 });
 
+// ================= CREATE LEAD =================
 app.post("/leads", auth, async (req, res) => {
   const lead = await Lead.create({
-    ...req.body,
-    companyId: req.user.companyId
+    name: req.body.name,
+    phone: req.body.phone,
+    status: "New",
+    companyId: req.user.companyId,
+    assignedTo: req.user.email
   });
 
   res.json(lead);
 });
 
+// ================= FIXED UPDATE (IMPORTANT 🔥) =================
 app.put("/leads/:id", auth, async (req, res) => {
-  const updated = await Lead.findByIdAndUpdate(req.params.id, req.body, { new: true });
-  res.json(updated);
+  try {
+    const lead = await Lead.findOne({
+      _id: req.params.id,
+      companyId: req.user.companyId
+    });
+
+    if (!lead) {
+      return res.status(403).json({ message: "Not allowed" });
+    }
+
+    // allow status update
+    if (req.body.status) {
+      lead.status = req.body.status;
+    }
+
+    if (req.body.name) lead.name = req.body.name;
+    if (req.body.phone) lead.phone = req.body.phone;
+
+    await lead.save();
+
+    res.json(lead);
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 });
 
+// ================= NOTES =================
 app.put("/leads/:id/note", auth, async (req, res) => {
-  const lead = await Lead.findById(req.params.id);
+  const lead = await Lead.findOne({
+    _id: req.params.id,
+    companyId: req.user.companyId
+  });
+
+  if (!lead) {
+    return res.status(403).json({ message: "Not allowed" });
+  }
+
   lead.notes.push({ text: req.body.text });
   await lead.save();
+
   res.json(lead);
 });
 
+// ================= DELETE =================
 app.delete("/leads/:id", auth, async (req, res) => {
-  await Lead.findByIdAndDelete(req.params.id);
+  await Lead.findOneAndDelete({
+    _id: req.params.id,
+    companyId: req.user.companyId
+  });
+
   res.json({ message: "Deleted" });
 });
 
 // ================= START =================
-app.listen(5000, () => console.log("🚀 Y1CRM SaaS Running"));
+app.listen(5000, () => {
+  console.log("🚀 Y1CRM SaaS Running on 5000");
+});
