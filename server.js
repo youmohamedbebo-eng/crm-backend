@@ -37,11 +37,16 @@ const leadSchema = new mongoose.Schema({
 const User = mongoose.model("User", userSchema);
 const Lead = mongoose.model("Lead", leadSchema);
 
-// ================= AUTH =================
+// ================= AUTH (FIXED 🔥) =================
 const auth = (req, res, next) => {
-  const token = req.headers.authorization;
+  let token = req.headers.authorization;
 
   if (!token) return res.status(401).json({ message: "No token" });
+
+  // support Bearer token
+  if (token.startsWith("Bearer ")) {
+    token = token.split(" ")[1];
+  }
 
   try {
     const decoded = jwt.verify(token, "secretkey");
@@ -98,31 +103,35 @@ app.post("/leads", auth, async (req, res) => {
   res.json(lead);
 });
 
-// ================= FIXED UPDATE (IMPORTANT 🔥) =================
+// ================= UPDATE LEAD (FINAL FIX 🔥🔥🔥) =================
 app.put("/leads/:id", auth, async (req, res) => {
   try {
-    const lead = await Lead.findOne({
-      _id: req.params.id,
-      companyId: req.user.companyId
-    });
+
+    console.log("Updating lead:", req.params.id, req.body);
+
+    const lead = await Lead.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        companyId: req.user.companyId
+      },
+      {
+        $set: {
+          ...(req.body.status && { status: req.body.status }),
+          ...(req.body.name && { name: req.body.name }),
+          ...(req.body.phone && { phone: req.body.phone })
+        }
+      },
+      { new: true }
+    );
 
     if (!lead) {
-      return res.status(403).json({ message: "Not allowed" });
+      return res.status(404).json({ message: "Lead not found or not yours" });
     }
-
-    // allow status update
-    if (req.body.status) {
-      lead.status = req.body.status;
-    }
-
-    if (req.body.name) lead.name = req.body.name;
-    if (req.body.phone) lead.phone = req.body.phone;
-
-    await lead.save();
 
     res.json(lead);
 
   } catch (err) {
+    console.log("Update error:", err);
     res.status(500).json({ message: err.message });
   }
 });
