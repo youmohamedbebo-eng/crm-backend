@@ -1,242 +1,99 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <title>Y1CRM SaaS</title>
+import express from "express";
+import mongoose from "mongoose";
+import cors from "cors";
+import dotenv from "dotenv";
+import jwt from "jsonwebtoken";
 
-  <style>
-    body {
-      margin: 0;
-      font-family: Arial;
-      display: flex;
-      background: #f4f6f9;
-    }
+dotenv.config();
 
-    .sidebar {
-      width: 220px;
-      background: #111827;
-      color: white;
-      height: 100vh;
-      padding: 15px;
-    }
+const app = express();
+app.use(cors());
+app.use(express.json());
 
-    .menu div {
-      padding: 10px;
-      background: #1f2937;
-      border-radius: 6px;
-      margin-top: 10px;
-      cursor: pointer;
-    }
+// ================= MongoDB =================
+mongoose.connect(process.env.MONGO_URL)
+  .then(() => console.log("MongoDB Connected 🚀"))
+  .catch(err => console.log("Mongo Error:", err));
 
-    .main {
-      flex: 1;
-      padding: 20px;
-    }
+// ================= USER =================
+const userSchema = new mongoose.Schema({
+  name: String,
+  email: { type: String, unique: true },
+  password: String,
+  role: { type: String, default: "sales" },
+  companyId: String,
+  plan: { type: String, default: "free" }
+});
 
-    header {
-      display: flex;
-      justify-content: space-between;
-      margin-bottom: 20px;
-    }
+const User = mongoose.model("User", userSchema);
 
-    .stats {
-      display: flex;
-      gap: 10px;
-      margin-bottom: 20px;
-    }
+// ================= LEAD =================
+const leadSchema = new mongoose.Schema({
+  name: String,
+  phone: String,
+  status: { type: String, default: "New" },
+  assignedTo: String,
+  companyId: String,
+  notes: [{ text: String, date: { type: Date, default: Date.now } }]
+});
 
-    .card {
-      flex: 1;
-      background: white;
-      padding: 15px;
-      border-radius: 10px;
-      text-align: center;
-    }
+const Lead = mongoose.model("Lead", leadSchema);
 
-    .board {
-      display: flex;
-      gap: 10px;
-      overflow-x: auto;
-    }
+// ================= AUTH =================
+const auth = (req, res, next) => {
+  const token = req.headers.authorization;
+  if (!token) return res.status(401).json({ message: "No token" });
 
-    .col {
-      min-width: 240px;
-      background: white;
-      border-radius: 10px;
-      padding: 10px;
-      height: 70vh;
-      overflow-y: auto;
-    }
+  try {
+    req.user = jwt.verify(token, "secretkey");
+    next();
+  } catch {
+    res.status(401).json({ message: "Invalid token" });
+  }
+};
 
-    .lead {
-      background: #f9fafb;
-      padding: 10px;
-      margin: 8px 0;
-      border-radius: 8px;
-      border-left: 4px solid #3b82f6;
-    }
+// ================= LOGIN =================
+app.post("/login", async (req, res) => {
+  const user = await User.findOne(req.body);
 
-    button {
-      background: #3b82f6;
-      color: white;
-      border: none;
-      padding: 6px 10px;
-      border-radius: 6px;
-      cursor: pointer;
-      margin-top: 5px;
-    }
+  if (!user) return res.status(401).json({ message: "Invalid login" });
 
-    input, select {
-      width: 100%;
-      padding: 6px;
-      margin-top: 5px;
-    }
+  const token = jwt.sign(user.toObject(), "secretkey", { expiresIn: "7d" });
 
-    .note {
-      font-size: 12px;
-      color: #444;
-      margin-top: 5px;
-    }
-  </style>
-</head>
+  res.json({ user, token });
+});
 
-<body>
+// ================= LEADS =================
+app.get("/leads", auth, async (req, res) => {
+  const leads = await Lead.find({ companyId: req.user.companyId });
+  res.json(leads);
+});
 
-<div class="sidebar">
-  <h2>🚀 Y1CRM</h2>
-
-  <div class="menu">
-    <div>📊 Dashboard</div>
-    <div>📁 Leads</div>
-    <div>📈 Analytics</div>
-    <div>⚙️ Settings</div>
-  </div>
-</div>
-
-<div class="main">
-
-<header>
-  <h2>Dashboard</h2>
-  <button onclick="logout()">Logout</button>
-</header>
-
-<div class="stats">
-  <div class="card">Total <div id="total">0</div></div>
-  <div class="card">New <div id="new">0</div></div>
-  <div class="card">Interested <div id="hot">0</div></div>
-  <div class="card">Closed <div id="closed">0</div></div>
-</div>
-
-<div class="board">
-
-  <div class="col"><h3>New</h3><div id="New"></div></div>
-  <div class="col"><h3>Contacted</h3><div id="Contacted"></div></div>
-  <div class="col"><h3>Interested</h3><div id="Interested"></div></div>
-  <div class="col"><h3>Not Interested</h3><div id="NotInterested"></div></div>
-  <div class="col"><h3>Closed Won</h3><div id="ClosedWon"></div></div>
-
-</div>
-
-</div>
-
-<script>
-
-const API = "https://crm-backend-svnl.onrender.com";
-
-let user = JSON.parse(localStorage.getItem("user"));
-let token = localStorage.getItem("token");
-
-if (!user || !token) location.href = "index.html";
-
-function logout(){
-  localStorage.clear();
-  location.href = "index.html";
-}
-
-/* ================= LOAD ================= */
-function loadLeads() {
-  fetch(API + "/leads", {
-    headers: { Authorization: token }
-  })
-  .then(r => r.json())
-  .then(data => {
-
-    // reset
-    ["New","Contacted","Interested","NotInterested","ClosedWon"].forEach(s=>{
-      document.getElementById(s).innerHTML = "";
-    });
-
-    // stats
-    document.getElementById("total").innerText = data.length;
-    document.getElementById("new").innerText = data.filter(l=>l.status==="New").length;
-    document.getElementById("hot").innerText = data.filter(l=>l.status==="Interested").length;
-    document.getElementById("closed").innerText = data.filter(l=>l.status==="Closed Won").length;
-
-    data.forEach(l => {
-
-      const safeStatus = l.status.replace(/\s/g, "");
-
-      const el = document.createElement("div");
-      el.className = "lead";
-
-      el.innerHTML = `
-        <b>${l.name}</b><br>
-        📞 ${l.phone}
-
-        <select onchange="updateStatus('${l._id}',this.value)">
-          <option ${l.status==="New"?"selected":""}>New</option>
-          <option ${l.status==="Contacted"?"selected":""}>Contacted</option>
-          <option ${l.status==="Interested"?"selected":""}>Interested</option>
-          <option ${l.status==="Not Interested"?"selected":""}>Not Interested</option>
-          <option ${l.status==="Closed Won"?"selected":""}>Closed Won</option>
-        </select>
-
-        <input id="note-${l._id}" placeholder="Add note">
-        <button onclick="addNote('${l._id}')">Save Note</button>
-
-        <div class="note">
-          ${(l.notes || []).map(n => "📝 " + n.text).join("<br>")}
-        </div>
-      `;
-
-      const col = document.getElementById(safeStatus);
-      if(col) col.appendChild(el);
-    });
-
+app.post("/leads", auth, async (req, res) => {
+  const lead = await Lead.create({
+    ...req.body,
+    companyId: req.user.companyId
   });
-}
 
-/* ================= STATUS ================= */
-function updateStatus(id,status){
-  fetch(API+"/leads/"+id,{
-    method:"PUT",
-    headers:{
-      "Content-Type":"application/json",
-      Authorization:token
-    },
-    body:JSON.stringify({status})
-  }).then(loadLeads);
-}
+  res.json(lead);
+});
 
-/* ================= NOTE ================= */
-function addNote(id){
-  const input = document.getElementById("note-"+id);
+app.put("/leads/:id", auth, async (req, res) => {
+  const updated = await Lead.findByIdAndUpdate(req.params.id, req.body, { new: true });
+  res.json(updated);
+});
 
-  fetch(API+"/leads/"+id+"/note",{
-    method:"PUT",
-    headers:{
-      "Content-Type":"application/json",
-      Authorization:token
-    },
-    body:JSON.stringify({ text: input.value })
-  }).then(()=>{
-    input.value = "";
-    loadLeads();
-  });
-}
+app.put("/leads/:id/note", auth, async (req, res) => {
+  const lead = await Lead.findById(req.params.id);
+  lead.notes.push({ text: req.body.text });
+  await lead.save();
+  res.json(lead);
+});
 
-loadLeads();
+app.delete("/leads/:id", auth, async (req, res) => {
+  await Lead.findByIdAndDelete(req.params.id);
+  res.json({ message: "Deleted" });
+});
 
-</script>
-
-</body>
-</html>
+// ================= START =================
+app.listen(5000, () => console.log("🚀 Y1CRM SaaS Running"));
