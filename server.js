@@ -47,12 +47,16 @@ app.post("/login", async (req, res) => {
 
 // ===== LEADS =====
 app.post("/leads", async (req, res) => {
-  const lead = await Lead.create(req.body);
+  const lead = await Lead.create({
+    ...req.body,
+    assignedTo: req.body.assignedTo
+  });
   res.json(lead);
 });
 
 app.get("/leads", async (req, res) => {
-  const leads = await Lead.find();
+  const user = req.query.user;
+  const leads = await Lead.find({ assignedTo: user });
   res.json(leads);
 });
 
