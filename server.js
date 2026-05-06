@@ -10,7 +10,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ================= MongoDB =================
+// ================= DB =================
 mongoose.connect(process.env.MONGO_URL)
   .then(() => console.log("MongoDB Connected 🚀"))
   .catch(err => console.log("Mongo Error:", err));
@@ -21,10 +21,10 @@ const userSchema = new mongoose.Schema({
   email: { type: String, unique: true },
   password: String,
 
-  role: { type: String, default: "sales" },
+  role: { type: String, default: "sales" }, // admin | sales
   companyId: { type: String, required: true },
 
-  plan: { type: String, default: "free" }
+  plan: { type: String, default: "free" } // free | pro
 });
 
 const User = mongoose.model("User", userSchema);
@@ -58,7 +58,9 @@ const Lead = mongoose.model("Lead", leadSchema);
 const auth = (req, res, next) => {
   const token = req.headers.authorization;
 
-  if (!token) return res.status(401).json({ message: "No token" });
+  if (!token) {
+    return res.status(401).json({ message: "No token" });
+  }
 
   try {
     const decoded = jwt.verify(token, "secretkey");
@@ -71,15 +73,30 @@ const auth = (req, res, next) => {
 
 // ================= REGISTER =================
 app.post("/register", async (req, res) => {
-  const user = await User.create(req.body);
-  res.json(user);
+  try {
+    const companyId = new mongoose.Types.ObjectId().toString();
+
+    const user = await User.create({
+      name: req.body.name,
+      email: req.body.email,
+      password: req.body.password,
+      role: "admin",
+      companyId,
+      plan: "free"
+    });
+
+    res.json(user);
+  } catch (err) {
+    res.status(500).json({ message: "Register error" });
+  }
 });
 
 // ================= LOGIN =================
 app.post("/login", async (req, res) => {
-  const { email, password } = req.body;
-
-  const user = await User.findOne({ email, password });
+  const user = await User.findOne({
+    email: req.body.email,
+    password: req.body.password
+  });
 
   if (!user) {
     return res.status(401).json({ message: "Invalid login" });
@@ -100,7 +117,7 @@ app.post("/login", async (req, res) => {
   res.json({ user, token });
 });
 
-// ================= LEAD LIMIT (FREE PLAN) =================
+// ================= LIMIT FREE PLAN =================
 const checkLimit = async (req, res, next) => {
   const count = await Lead.countDocuments({
     companyId: req.user.companyId
@@ -108,7 +125,7 @@ const checkLimit = async (req, res, next) => {
 
   if (req.user.plan === "free" && count >= 20) {
     return res.status(403).json({
-      message: "Free limit reached. Upgrade to Pro 🚀"
+      message: "Free limit reached. Upgrade 🚀"
     });
   }
 
@@ -121,10 +138,8 @@ app.post("/leads", auth, checkLimit, async (req, res) => {
     name: req.body.name,
     phone: req.body.phone,
     status: "New",
-
     assignedTo: req.user.email,
     companyId: req.user.companyId,
-
     notes: []
   });
 
@@ -194,29 +209,30 @@ app.delete("/leads/:id", auth, async (req, res) => {
   res.json({ message: "Deleted" });
 });
 
-// ================= ANALYTICS (SaaS FEATURE) =================
+// ================= ANALYTICS =================
 app.get("/analytics", auth, async (req, res) => {
-  const total = await Lead.countDocuments({ companyId: req.user.companyId });
+  const base = { companyId: req.user.companyId };
+
+  const total = await Lead.countDocuments(base);
 
   const interested = await Lead.countDocuments({
-    companyId: req.user.companyId,
+    ...base,
     status: "Interested"
   });
 
   const closed = await Lead.countDocuments({
-    companyId: req.user.companyId,
+    ...base,
     status: "Closed Won"
   });
 
   res.json({ total, interested, closed });
 });
 
-// ================= HEALTH =================
+// ================= SERVER =================
 app.get("/", (req, res) => {
-  res.send("🚀 CRM SaaS Pro Max v3 Running");
+  res.send("🚀 Y1CRM SaaS Running");
 });
 
-// ================= START =================
 app.listen(5000, () => {
   console.log("Server running on port 5000 🚀");
 });
