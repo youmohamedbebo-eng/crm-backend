@@ -40,8 +40,14 @@ app.post("/register", async (req, res) => {
 });
 
 app.post("/login", async (req, res) => {
-  const user = await User.findOne(req.body);
-  if (!user) return res.status(401).send("Invalid");
+  const { email, password } = req.body;
+
+  const user = await User.findOne({ email, password });
+
+  if (!user) {
+    return res.status(401).json({ message: "Invalid login" });
+  }
+
   res.json(user);
 });
 
