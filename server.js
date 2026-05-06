@@ -2,6 +2,7 @@ import express from "express";
 import mongoose from "mongoose";
 import cors from "cors";
 import dotenv from "dotenv";
+import jwt from "jsonwebtoken";
 
 dotenv.config();
 
@@ -18,7 +19,8 @@ mongoose.connect(process.env.MONGO_URL)
 const userSchema = new mongoose.Schema({
   name: String,
   email: String,
-  password: String
+  password: String,
+  role: { type: String, default: "sales" } // 🟢 admin / sales
 });
 
 const User = mongoose.model("User", userSchema);
@@ -32,6 +34,21 @@ const leadSchema = new mongoose.Schema({
 });
 
 const Lead = mongoose.model("Lead", leadSchema);
+
+// ================= AUTH MIDDLEWARE =================
+const auth = (req, res, next) => {
+  const token = req.headers.authorization;
+
+  if (!token) return res.status(401).json({ message: "No token" });
+
+  try {
+    const decoded = jwt.verify(token, "secretkey");
+    req.user = decoded;
+    next();
+  } catch {
+    res.status(401).json({ message: "Invalid token" });
+  }
+};
 
 // ================= AUTH =================
 app.post("/register", async (req, res) => {
@@ -48,36 +65,59 @@ app.post("/login", async (req, res) => {
     return res.status(401).json({ message: "Invalid login" });
   }
 
-  res.json(user);
+  const token = jwt.sign(
+    {
+      id: user._id,
+      email: user.email,
+      role: user.role
+    },
+    "secretkey",
+    { expiresIn: "7d" }
+  );
+
+  res.json({ user, token });
 });
 
 // ================= LEADS =================
 
 // Create Lead
-app.post("/leads", async (req, res) => {
-  const lead = await Lead.create(req.body);
+app.post("/leads", auth, async (req, res) => {
+  const lead = await Lead.create({
+    ...req.body,
+    assignedTo: req.user.email
+  });
+
   res.json(lead);
 });
 
 // Get Leads
-app.get("/leads", async (req, res) => {
-  const user = req.query.user;
-  const leads = await Lead.find({ assignedTo: user });
+app.get("/leads", auth, async (req, res) => {
+  let leads;
+
+  // 👑 Admin يشوف الكل
+  if (req.user.role === "admin") {
+    leads = await Lead.find();
+  } else {
+    // 👤 Sales يشوف بتاعه بس
+    leads = await Lead.find({ assignedTo: req.user.email });
+  }
+
   res.json(leads);
 });
 
-// Update Lead (Done / Status)
-app.put("/leads/:id", async (req, res) => {
+// Update Lead
+app.put("/leads/:id", auth, async (req, res) => {
   const updated = await Lead.findByIdAndUpdate(
     req.params.id,
     req.body,
     { new: true }
   );
+
   res.json(updated);
 });
 
 // Delete Lead
-app.delete("/leads/:id", async (req, res) => {
+app.delete("/leads/:id", auth, async (req, res) => {
   await Lead.findByIdAndDelete(req.params.id);
   res.json({ message: "Deleted" });
 });
