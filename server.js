@@ -9,12 +9,12 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ===== MongoDB =====
+// ================= MongoDB =================
 mongoose.connect(process.env.MONGO_URL)
   .then(() => console.log("MongoDB Connected"))
-  .catch(err => console.log(err));
+  .catch(err => console.log("Mongo Error:", err));
 
-// ===== USER (Sales) =====
+// ================= USER =================
 const userSchema = new mongoose.Schema({
   name: String,
   email: String,
@@ -23,7 +23,7 @@ const userSchema = new mongoose.Schema({
 
 const User = mongoose.model("User", userSchema);
 
-// ===== LEAD =====
+// ================= LEAD =================
 const leadSchema = new mongoose.Schema({
   name: String,
   phone: String,
@@ -33,7 +33,7 @@ const leadSchema = new mongoose.Schema({
 
 const Lead = mongoose.model("Lead", leadSchema);
 
-// ===== AUTH =====
+// ================= AUTH =================
 app.post("/register", async (req, res) => {
   const user = await User.create(req.body);
   res.json(user);
@@ -51,21 +51,42 @@ app.post("/login", async (req, res) => {
   res.json(user);
 });
 
-// ===== LEADS =====
+// ================= LEADS =================
+
+// Create Lead
 app.post("/leads", async (req, res) => {
-  const lead = await Lead.create({
-    ...req.body,
-    assignedTo: req.body.assignedTo
-  });
+  const lead = await Lead.create(req.body);
   res.json(lead);
 });
 
+// Get Leads
 app.get("/leads", async (req, res) => {
   const user = req.query.user;
   const leads = await Lead.find({ assignedTo: user });
   res.json(leads);
 });
 
+// Update Lead (Done / Status)
+app.put("/leads/:id", async (req, res) => {
+  const updated = await Lead.findByIdAndUpdate(
+    req.params.id,
+    req.body,
+    { new: true }
+  );
+  res.json(updated);
+});
+
+// Delete Lead
+app.delete("/leads/:id", async (req, res) => {
+  await Lead.findByIdAndDelete(req.params.id);
+  res.json({ message: "Deleted" });
+});
+
+// ================= SERVER =================
+app.get("/", (req, res) => {
+  res.send("CRM API Running 🚀");
+});
+
 app.listen(5000, () => {
-  console.log("Server running");
+  console.log("Server running on port 5000");
 });
