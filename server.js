@@ -12,7 +12,7 @@ app.use(express.json());
 
 // ================= MongoDB =================
 mongoose.connect(process.env.MONGO_URL)
-  .then(() => console.log("MongoDB Connected"))
+  .then(() => console.log("MongoDB Connected 🚀"))
   .catch(err => console.log("Mongo Error:", err));
 
 // ================= USER =================
@@ -20,10 +20,8 @@ const userSchema = new mongoose.Schema({
   name: String,
   email: String,
   password: String,
-  role: { type: String, default: "sales" },
-
-  // 🟢 SaaS CORE
-  companyId: String
+  role: { type: String, default: "sales" }, // admin | sales
+  companyId: { type: String, required: true }
 });
 
 const User = mongoose.model("User", userSchema);
@@ -32,10 +30,13 @@ const User = mongoose.model("User", userSchema);
 const leadSchema = new mongoose.Schema({
   name: String,
   phone: String,
-  status: { type: String, default: "New" },
-  assignedTo: String,
+  status: {
+    type: String,
+    default: "New",
+    enum: ["New", "Contacted", "Interested", "Not Interested", "Closed Won"]
+  },
 
-  // 🟢 SaaS CORE
+  assignedTo: String,
   companyId: String,
 
   notes: [
@@ -52,14 +53,16 @@ const Lead = mongoose.model("Lead", leadSchema);
 const auth = (req, res, next) => {
   const token = req.headers.authorization;
 
-  if (!token) return res.status(401).json({ message: "No token" });
+  if (!token) {
+    return res.status(401).json({ message: "No token" });
+  }
 
   try {
     const decoded = jwt.verify(token, "secretkey");
     req.user = decoded;
     next();
-  } catch {
-    res.status(401).json({ message: "Invalid token" });
+  } catch (err) {
+    return res.status(401).json({ message: "Invalid token" });
   }
 };
 
@@ -83,7 +86,7 @@ app.post("/login", async (req, res) => {
       id: user._id,
       email: user.email,
       role: user.role,
-      companyId: user.companyId   // 🟢 مهم
+      companyId: user.companyId
     },
     "secretkey",
     { expiresIn: "7d" }
@@ -96,74 +99,91 @@ app.post("/login", async (req, res) => {
 
 // Create Lead
 app.post("/leads", auth, async (req, res) => {
-  const lead = await Lead.create({
-    name: req.body.name,
-    phone: req.body.phone,
-    status: req.body.status || "New",
-    assignedTo: req.user.email,
+  try {
+    const lead = await Lead.create({
+      name: req.body.name,
+      phone: req.body.phone,
+      status: req.body.status || "New",
+      assignedTo: req.user.email,
+      companyId: req.user.companyId,
+      notes: []
+    });
 
-    // 🟢 SaaS isolation
-    companyId: req.user.companyId,
-
-    notes: []
-  });
-
-  res.json(lead);
+    res.json(lead);
+  } catch (err) {
+    res.status(500).json({ message: "Error creating lead" });
+  }
 });
 
 // Get Leads (SaaS FILTER)
 app.get("/leads", auth, async (req, res) => {
-  let leads;
+  try {
+    let filter = { companyId: req.user.companyId };
 
-  if (req.user.role === "admin") {
-    leads = await Lead.find({
-      companyId: req.user.companyId
-    });
-  } else {
-    leads = await Lead.find({
-      companyId: req.user.companyId,
-      assignedTo: req.user.email
-    });
+    if (req.user.role !== "admin") {
+      filter.assignedTo = req.user.email;
+    }
+
+    const leads = await Lead.find(filter);
+    res.json(leads);
+
+  } catch (err) {
+    res.status(500).json({ message: "Error fetching leads" });
   }
-
-  res.json(leads);
 });
 
 // Update Lead
 app.put("/leads/:id", auth, async (req, res) => {
-  const updated = await Lead.findByIdAndUpdate(
-    req.params.id,
-    req.body,
-    { new: true }
-  );
+  try {
+    const updated = await Lead.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true }
+    );
 
-  res.json(updated);
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ message: "Error updating lead" });
+  }
 });
 
 // ================= ADD NOTE =================
 app.put("/leads/:id/note", auth, async (req, res) => {
-  const lead = await Lead.findById(req.params.id);
+  try {
+    const lead = await Lead.findById(req.params.id);
 
-  lead.notes.push({
-    text: req.body.text
-  });
+    if (!lead) {
+      return res.status(404).json({ message: "Lead not found" });
+    }
 
-  await lead.save();
+    lead.notes.push({ text: req.body.text });
+    await lead.save();
 
-  res.json(lead);
+    res.json(lead);
+
+  } catch (err) {
+    res.status(500).json({ message: "Error adding note" });
+  }
 });
 
 // Delete Lead
 app.delete("/leads/:id", auth, async (req, res) => {
-  await Lead.findByIdAndDelete(req.params.id);
-  res.json({ message: "Deleted" });
+  try {
+    await Lead.findByIdAndDelete(req.params.id);
+    res.json({ message: "Deleted" });
+  } catch (err) {
+    res.status(500).json({ message: "Error deleting lead" });
+  }
 });
 
-// ================= SERVER =================
+// ================= HEALTH CHECK =================
 app.get("/", (req, res) => {
-  res.send("CRM SaaS API Running 🚀");
+  res.send("CRM SaaS Pro Max API Running 🚀");
 });
 
-app.listen(5000, () => {
-  console.log("Server running on port 5000");
+// ================= START SERVER =================
+const PORT = process.env.PORT || 5000;
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
