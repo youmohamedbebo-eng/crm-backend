@@ -1,238 +1,260 @@
-import express from "express";
-import mongoose from "mongoose";
-import cors from "cors";
-import dotenv from "dotenv";
-import jwt from "jsonwebtoken";
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Y1CRM SaaS</title>
 
-dotenv.config();
-
-const app = express();
-app.use(cors());
-app.use(express.json());
-
-// ================= DB =================
-mongoose.connect(process.env.MONGO_URL)
-  .then(() => console.log("MongoDB Connected 🚀"))
-  .catch(err => console.log("Mongo Error:", err));
-
-// ================= USER =================
-const userSchema = new mongoose.Schema({
-  name: String,
-  email: { type: String, unique: true },
-  password: String,
-
-  role: { type: String, default: "sales" }, // admin | sales
-  companyId: { type: String, required: true },
-
-  plan: { type: String, default: "free" } // free | pro
-});
-
-const User = mongoose.model("User", userSchema);
-
-// ================= LEAD =================
-const leadSchema = new mongoose.Schema({
-  name: String,
-  phone: String,
-
-  status: {
-    type: String,
-    default: "New",
-    enum: ["New", "Contacted", "Interested", "Not Interested", "Closed Won"]
-  },
-
-  assignedTo: String,
-  companyId: String,
-
-  notes: [
-    {
-      text: String,
-      createdBy: String,
-      date: { type: Date, default: Date.now }
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial;
+      display: flex;
+      background: #f4f6f9;
     }
-  ]
-});
 
-const Lead = mongoose.model("Lead", leadSchema);
+    /* ================= SIDEBAR ================= */
+    .sidebar {
+      width: 220px;
+      background: #111827;
+      color: white;
+      height: 100vh;
+      padding: 15px;
+    }
 
-// ================= AUTH =================
-const auth = (req, res, next) => {
-  const token = req.headers.authorization;
+    .sidebar h2 {
+      font-size: 18px;
+      margin-bottom: 20px;
+    }
 
-  if (!token) {
-    return res.status(401).json({ message: "No token" });
-  }
+    .menu {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
 
-  try {
-    const decoded = jwt.verify(token, "secretkey");
-    req.user = decoded;
-    next();
-  } catch {
-    return res.status(401).json({ message: "Invalid token" });
-  }
-};
+    .menu div {
+      padding: 10px;
+      background: #1f2937;
+      border-radius: 6px;
+      cursor: pointer;
+    }
 
-// ================= REGISTER =================
-app.post("/register", async (req, res) => {
-  try {
-    const companyId = new mongoose.Types.ObjectId().toString();
+    /* ================= MAIN ================= */
+    .main {
+      flex: 1;
+      padding: 20px;
+    }
 
-    const user = await User.create({
-      name: req.body.name,
-      email: req.body.email,
-      password: req.body.password,
-      role: "admin",
-      companyId,
-      plan: "free"
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    .stats {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    .card {
+      flex: 1;
+      background: white;
+      padding: 15px;
+      border-radius: 10px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      text-align: center;
+    }
+
+    /* ================= PIPELINE ================= */
+    .board {
+      display: flex;
+      gap: 10px;
+      overflow-x: auto;
+    }
+
+    .col {
+      min-width: 240px;
+      background: white;
+      border-radius: 10px;
+      padding: 10px;
+      height: 70vh;
+      overflow-y: auto;
+    }
+
+    .lead {
+      background: #f9fafb;
+      padding: 10px;
+      margin: 8px 0;
+      border-radius: 8px;
+      border-left: 4px solid #3b82f6;
+    }
+
+    button {
+      background: #3b82f6;
+      color: white;
+      border: none;
+      padding: 6px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    input, select {
+      width: 100%;
+      padding: 6px;
+      margin-top: 5px;
+    }
+  </style>
+</head>
+
+<body>
+
+<!-- SIDEBAR -->
+<div class="sidebar">
+  <h2>🚀 Y1CRM</h2>
+
+  <div class="menu">
+    <div>📊 Dashboard</div>
+    <div>📁 Leads</div>
+    <div>📈 Analytics</div>
+    <div>👥 Team</div>
+    <div>⚙️ Settings</div>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+
+<header>
+  <h2>Dashboard</h2>
+  <button onclick="logout()">Logout</button>
+</header>
+
+<!-- STATS -->
+<div class="stats">
+  <div class="card">Total <div id="total">0</div></div>
+  <div class="card">Interested <div id="hot">0</div></div>
+  <div class="card">Closed <div id="closed">0</div></div>
+</div>
+
+<!-- PIPELINE -->
+<div class="board">
+
+  <div class="col">
+    <h3>New</h3>
+    <div id="New"></div>
+  </div>
+
+  <div class="col">
+    <h3>Contacted</h3>
+    <div id="Contacted"></div>
+  </div>
+
+  <div class="col">
+    <h3>Interested</h3>
+    <div id="Interested"></div>
+  </div>
+
+  <div class="col">
+    <h3>Not Interested</h3>
+    <div id="Not Interested"></div>
+  </div>
+
+  <div class="col">
+    <h3>Closed Won</h3>
+    <div id="Closed Won"></div>
+  </div>
+
+</div>
+
+</div>
+
+<script>
+
+const API = "https://crm-backend-svnl.onrender.com";
+
+let user = JSON.parse(localStorage.getItem("user"));
+let token = localStorage.getItem("token");
+
+if (!user || !token) location.href = "index.html";
+
+function logout(){
+  localStorage.clear();
+  location.href = "index.html";
+}
+
+/* ================= LOAD ================= */
+function loadLeads() {
+  fetch(API + "/leads", {
+    headers: { Authorization: token }
+  })
+  .then(r => r.json())
+  .then(data => {
+
+    ["New","Contacted","Interested","Not Interested","Closed Won"].forEach(s=>{
+      document.getElementById(s).innerHTML = "";
     });
 
-    res.json(user);
-  } catch (err) {
-    res.status(500).json({ message: "Register error" });
-  }
-});
+    document.getElementById("total").innerText = data.length;
+    document.getElementById("hot").innerText = data.filter(l=>l.status==="Interested").length;
+    document.getElementById("closed").innerText = data.filter(l=>l.status==="Closed Won").length;
 
-// ================= LOGIN =================
-app.post("/login", async (req, res) => {
-  const user = await User.findOne({
-    email: req.body.email,
-    password: req.body.password
+    data.forEach(l => {
+      const el = document.createElement("div");
+      el.className = "lead";
+
+      el.innerHTML = `
+        <b>${l.name}</b><br>
+        📞 ${l.phone}
+
+        <select onchange="updateStatus('${l._id}',this.value)">
+          <option ${l.status==="New"?"selected":""}>New</option>
+          <option ${l.status==="Contacted"?"selected":""}>Contacted</option>
+          <option ${l.status==="Interested"?"selected":""}>Interested</option>
+          <option ${l.status==="Not Interested"?"selected":""}>Not Interested</option>
+          <option ${l.status==="Closed Won"?"selected":""}>Closed Won</option>
+        </select>
+
+        <input id="note-${l._id}" placeholder="Add note">
+        <button onclick="addNote('${l._id}')">Save</button>
+      `;
+
+      const col = document.getElementById(l.status);
+      if(col) col.appendChild(el);
+    });
+
   });
+}
 
-  if (!user) {
-    return res.status(401).json({ message: "Invalid login" });
-  }
-
-  const token = jwt.sign(
-    {
-      id: user._id,
-      email: user.email,
-      role: user.role,
-      companyId: user.companyId,
-      plan: user.plan
+/* ================= STATUS ================= */
+function updateStatus(id,status){
+  fetch(API+"/leads/"+id,{
+    method:"PUT",
+    headers:{
+      "Content-Type":"application/json",
+      Authorization:token
     },
-    "secretkey",
-    { expiresIn: "7d" }
-  );
+    body:JSON.stringify({status})
+  }).then(loadLeads);
+}
 
-  res.json({ user, token });
-});
+/* ================= NOTE ================= */
+function addNote(id){
+  fetch(API+"/leads/"+id+"/note",{
+    method:"PUT",
+    headers:{
+      "Content-Type":"application/json",
+      Authorization:token
+    },
+    body:JSON.stringify({
+      text:document.getElementById("note-"+id).value
+    })
+  }).then(loadLeads);
+}
 
-// ================= LIMIT FREE PLAN =================
-const checkLimit = async (req, res, next) => {
-  const count = await Lead.countDocuments({
-    companyId: req.user.companyId
-  });
+loadLeads();
 
-  if (req.user.plan === "free" && count >= 20) {
-    return res.status(403).json({
-      message: "Free limit reached. Upgrade 🚀"
-    });
-  }
+</script>
 
-  next();
-};
-
-// ================= CREATE LEAD =================
-app.post("/leads", auth, checkLimit, async (req, res) => {
-  const lead = await Lead.create({
-    name: req.body.name,
-    phone: req.body.phone,
-    status: "New",
-    assignedTo: req.user.email,
-    companyId: req.user.companyId,
-    notes: []
-  });
-
-  res.json(lead);
-});
-
-// ================= GET LEADS =================
-app.get("/leads", auth, async (req, res) => {
-  let filter = { companyId: req.user.companyId };
-
-  if (req.user.role !== "admin") {
-    filter.assignedTo = req.user.email;
-  }
-
-  const leads = await Lead.find(filter);
-  res.json(leads);
-});
-
-// ================= UPDATE LEAD =================
-app.put("/leads/:id", auth, async (req, res) => {
-  const lead = await Lead.findOne({
-    _id: req.params.id,
-    companyId: req.user.companyId
-  });
-
-  if (!lead) {
-    return res.status(403).json({ message: "Not allowed" });
-  }
-
-  const updated = await Lead.findByIdAndUpdate(
-    req.params.id,
-    req.body,
-    { new: true }
-  );
-
-  res.json(updated);
-});
-
-// ================= ADD NOTE =================
-app.put("/leads/:id/note", auth, async (req, res) => {
-  const lead = await Lead.findOne({
-    _id: req.params.id,
-    companyId: req.user.companyId
-  });
-
-  if (!lead) {
-    return res.status(403).json({ message: "Not allowed" });
-  }
-
-  lead.notes.push({
-    text: req.body.text,
-    createdBy: req.user.email
-  });
-
-  await lead.save();
-
-  res.json(lead);
-});
-
-// ================= DELETE LEAD =================
-app.delete("/leads/:id", auth, async (req, res) => {
-  await Lead.deleteOne({
-    _id: req.params.id,
-    companyId: req.user.companyId
-  });
-
-  res.json({ message: "Deleted" });
-});
-
-// ================= ANALYTICS =================
-app.get("/analytics", auth, async (req, res) => {
-  const base = { companyId: req.user.companyId };
-
-  const total = await Lead.countDocuments(base);
-
-  const interested = await Lead.countDocuments({
-    ...base,
-    status: "Interested"
-  });
-
-  const closed = await Lead.countDocuments({
-    ...base,
-    status: "Closed Won"
-  });
-
-  res.json({ total, interested, closed });
-});
-
-// ================= SERVER =================
-app.get("/", (req, res) => {
-  res.send("🚀 Y1CRM SaaS Running");
-});
-
-app.listen(5000, () => {
-  console.log("Server running on port 5000 🚀");
-});
+</body>
+</html>
