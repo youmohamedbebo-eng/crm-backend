@@ -17,14 +17,14 @@ mongoose.connect(process.env.MONGO_URL)
 
 // ================= USER =================
 const userSchema = new mongoose.Schema({
-  name: { type: String, required: true },
+  name: String,
   email: { type: String, unique: true },
-  password: { type: String, required: true },
+  password: String,
 
-  role: { type: String, default: "sales" }, // admin | sales
+  role: { type: String, default: "sales" },
   companyId: { type: String, required: true },
 
-  plan: { type: String, default: "free" } // free | pro | team
+  plan: { type: String, default: "free" }
 });
 
 const User = mongoose.model("User", userSchema);
@@ -54,13 +54,11 @@ const leadSchema = new mongoose.Schema({
 
 const Lead = mongoose.model("Lead", leadSchema);
 
-// ================= AUTH MIDDLEWARE =================
+// ================= AUTH =================
 const auth = (req, res, next) => {
   const token = req.headers.authorization;
 
-  if (!token) {
-    return res.status(401).json({ message: "No token" });
-  }
+  if (!token) return res.status(401).json({ message: "No token" });
 
   try {
     const decoded = jwt.verify(token, "secretkey");
@@ -71,12 +69,13 @@ const auth = (req, res, next) => {
   }
 };
 
-// ================= AUTH =================
+// ================= REGISTER =================
 app.post("/register", async (req, res) => {
   const user = await User.create(req.body);
   res.json(user);
 });
 
+// ================= LOGIN =================
 app.post("/login", async (req, res) => {
   const { email, password } = req.body;
 
@@ -101,111 +100,120 @@ app.post("/login", async (req, res) => {
   res.json({ user, token });
 });
 
-// ================= CREATE LEAD =================
-app.post("/leads", auth, async (req, res) => {
-  try {
-    const lead = await Lead.create({
-      name: req.body.name,
-      phone: req.body.phone,
-      status: "New",
+// ================= LEAD LIMIT (FREE PLAN) =================
+const checkLimit = async (req, res, next) => {
+  const count = await Lead.countDocuments({
+    companyId: req.user.companyId
+  });
 
-      assignedTo: req.user.email,
-      companyId: req.user.companyId,
-
-      notes: []
+  if (req.user.plan === "free" && count >= 20) {
+    return res.status(403).json({
+      message: "Free limit reached. Upgrade to Pro 🚀"
     });
-
-    res.json(lead);
-  } catch {
-    res.status(500).json({ message: "Error creating lead" });
   }
+
+  next();
+};
+
+// ================= CREATE LEAD =================
+app.post("/leads", auth, checkLimit, async (req, res) => {
+  const lead = await Lead.create({
+    name: req.body.name,
+    phone: req.body.phone,
+    status: "New",
+
+    assignedTo: req.user.email,
+    companyId: req.user.companyId,
+
+    notes: []
+  });
+
+  res.json(lead);
 });
 
-// ================= GET LEADS (SAAS SECURITY) =================
+// ================= GET LEADS =================
 app.get("/leads", auth, async (req, res) => {
-  try {
-    let filter = { companyId: req.user.companyId };
+  let filter = { companyId: req.user.companyId };
 
-    if (req.user.role !== "admin") {
-      filter.assignedTo = req.user.email;
-    }
-
-    const leads = await Lead.find(filter);
-    res.json(leads);
-
-  } catch {
-    res.status(500).json({ message: "Error fetching leads" });
+  if (req.user.role !== "admin") {
+    filter.assignedTo = req.user.email;
   }
+
+  const leads = await Lead.find(filter);
+  res.json(leads);
 });
 
 // ================= UPDATE LEAD =================
 app.put("/leads/:id", auth, async (req, res) => {
-  try {
-    const lead = await Lead.findOne({
-      _id: req.params.id,
-      companyId: req.user.companyId
-    });
+  const lead = await Lead.findOne({
+    _id: req.params.id,
+    companyId: req.user.companyId
+  });
 
-    if (!lead) {
-      return res.status(403).json({ message: "Not allowed" });
-    }
-
-    const updated = await Lead.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      { new: true }
-    );
-
-    res.json(updated);
-  } catch {
-    res.status(500).json({ message: "Error updating lead" });
+  if (!lead) {
+    return res.status(403).json({ message: "Not allowed" });
   }
+
+  const updated = await Lead.findByIdAndUpdate(
+    req.params.id,
+    req.body,
+    { new: true }
+  );
+
+  res.json(updated);
 });
 
 // ================= ADD NOTE =================
 app.put("/leads/:id/note", auth, async (req, res) => {
-  try {
-    const lead = await Lead.findOne({
-      _id: req.params.id,
-      companyId: req.user.companyId
-    });
+  const lead = await Lead.findOne({
+    _id: req.params.id,
+    companyId: req.user.companyId
+  });
 
-    if (!lead) {
-      return res.status(403).json({ message: "Not allowed" });
-    }
-
-    lead.notes.push({
-      text: req.body.text,
-      createdBy: req.user.email
-    });
-
-    await lead.save();
-
-    res.json(lead);
-
-  } catch {
-    res.status(500).json({ message: "Error adding note" });
+  if (!lead) {
+    return res.status(403).json({ message: "Not allowed" });
   }
+
+  lead.notes.push({
+    text: req.body.text,
+    createdBy: req.user.email
+  });
+
+  await lead.save();
+
+  res.json(lead);
 });
 
 // ================= DELETE LEAD =================
 app.delete("/leads/:id", auth, async (req, res) => {
-  try {
-    await Lead.deleteOne({
-      _id: req.params.id,
-      companyId: req.user.companyId
-    });
+  await Lead.deleteOne({
+    _id: req.params.id,
+    companyId: req.user.companyId
+  });
 
-    res.json({ message: "Deleted" });
+  res.json({ message: "Deleted" });
+});
 
-  } catch {
-    res.status(500).json({ message: "Error deleting lead" });
-  }
+// ================= ANALYTICS (SaaS FEATURE) =================
+app.get("/analytics", auth, async (req, res) => {
+  const total = await Lead.countDocuments({ companyId: req.user.companyId });
+
+  const interested = await Lead.countDocuments({
+    companyId: req.user.companyId,
+    status: "Interested"
+  });
+
+  const closed = await Lead.countDocuments({
+    companyId: req.user.companyId,
+    status: "Closed Won"
+  });
+
+  res.json({ total, interested, closed });
 });
 
 // ================= HEALTH =================
 app.get("/", (req, res) => {
-  res.send("CRM SaaS Pro Max Running 🚀");
+  res.send("🚀 CRM SaaS Pro Max v3 Running");
 });
 
 // ================= START =================
