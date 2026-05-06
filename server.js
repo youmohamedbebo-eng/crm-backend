@@ -17,11 +17,14 @@ mongoose.connect(process.env.MONGO_URL)
 
 // ================= USER =================
 const userSchema = new mongoose.Schema({
-  name: String,
-  email: String,
-  password: String,
+  name: { type: String, required: true },
+  email: { type: String, unique: true },
+  password: { type: String, required: true },
+
   role: { type: String, default: "sales" }, // admin | sales
-  companyId: { type: String, required: true }
+  companyId: { type: String, required: true },
+
+  plan: { type: String, default: "free" } // free | pro | team
 });
 
 const User = mongoose.model("User", userSchema);
@@ -30,6 +33,7 @@ const User = mongoose.model("User", userSchema);
 const leadSchema = new mongoose.Schema({
   name: String,
   phone: String,
+
   status: {
     type: String,
     default: "New",
@@ -42,6 +46,7 @@ const leadSchema = new mongoose.Schema({
   notes: [
     {
       text: String,
+      createdBy: String,
       date: { type: Date, default: Date.now }
     }
   ]
@@ -61,7 +66,7 @@ const auth = (req, res, next) => {
     const decoded = jwt.verify(token, "secretkey");
     req.user = decoded;
     next();
-  } catch (err) {
+  } catch {
     return res.status(401).json({ message: "Invalid token" });
   }
 };
@@ -86,7 +91,8 @@ app.post("/login", async (req, res) => {
       id: user._id,
       email: user.email,
       role: user.role,
-      companyId: user.companyId
+      companyId: user.companyId,
+      plan: user.plan
     },
     "secretkey",
     { expiresIn: "7d" }
@@ -95,27 +101,27 @@ app.post("/login", async (req, res) => {
   res.json({ user, token });
 });
 
-// ================= LEADS =================
-
-// Create Lead
+// ================= CREATE LEAD =================
 app.post("/leads", auth, async (req, res) => {
   try {
     const lead = await Lead.create({
       name: req.body.name,
       phone: req.body.phone,
-      status: req.body.status || "New",
+      status: "New",
+
       assignedTo: req.user.email,
       companyId: req.user.companyId,
+
       notes: []
     });
 
     res.json(lead);
-  } catch (err) {
+  } catch {
     res.status(500).json({ message: "Error creating lead" });
   }
 });
 
-// Get Leads (SaaS FILTER)
+// ================= GET LEADS (SAAS SECURITY) =================
 app.get("/leads", auth, async (req, res) => {
   try {
     let filter = { companyId: req.user.companyId };
@@ -127,14 +133,23 @@ app.get("/leads", auth, async (req, res) => {
     const leads = await Lead.find(filter);
     res.json(leads);
 
-  } catch (err) {
+  } catch {
     res.status(500).json({ message: "Error fetching leads" });
   }
 });
 
-// Update Lead
+// ================= UPDATE LEAD =================
 app.put("/leads/:id", auth, async (req, res) => {
   try {
+    const lead = await Lead.findOne({
+      _id: req.params.id,
+      companyId: req.user.companyId
+    });
+
+    if (!lead) {
+      return res.status(403).json({ message: "Not allowed" });
+    }
+
     const updated = await Lead.findByIdAndUpdate(
       req.params.id,
       req.body,
@@ -142,7 +157,7 @@ app.put("/leads/:id", auth, async (req, res) => {
     );
 
     res.json(updated);
-  } catch (err) {
+  } catch {
     res.status(500).json({ message: "Error updating lead" });
   }
 });
@@ -150,40 +165,50 @@ app.put("/leads/:id", auth, async (req, res) => {
 // ================= ADD NOTE =================
 app.put("/leads/:id/note", auth, async (req, res) => {
   try {
-    const lead = await Lead.findById(req.params.id);
+    const lead = await Lead.findOne({
+      _id: req.params.id,
+      companyId: req.user.companyId
+    });
 
     if (!lead) {
-      return res.status(404).json({ message: "Lead not found" });
+      return res.status(403).json({ message: "Not allowed" });
     }
 
-    lead.notes.push({ text: req.body.text });
+    lead.notes.push({
+      text: req.body.text,
+      createdBy: req.user.email
+    });
+
     await lead.save();
 
     res.json(lead);
 
-  } catch (err) {
+  } catch {
     res.status(500).json({ message: "Error adding note" });
   }
 });
 
-// Delete Lead
+// ================= DELETE LEAD =================
 app.delete("/leads/:id", auth, async (req, res) => {
   try {
-    await Lead.findByIdAndDelete(req.params.id);
+    await Lead.deleteOne({
+      _id: req.params.id,
+      companyId: req.user.companyId
+    });
+
     res.json({ message: "Deleted" });
-  } catch (err) {
+
+  } catch {
     res.status(500).json({ message: "Error deleting lead" });
   }
 });
 
-// ================= HEALTH CHECK =================
+// ================= HEALTH =================
 app.get("/", (req, res) => {
-  res.send("CRM SaaS Pro Max API Running 🚀");
+  res.send("CRM SaaS Pro Max Running 🚀");
 });
 
-// ================= START SERVER =================
-const PORT = process.env.PORT || 5000;
-
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+// ================= START =================
+app.listen(5000, () => {
+  console.log("Server running on port 5000 🚀");
 });
