@@ -20,7 +20,7 @@ const userSchema = new mongoose.Schema({
   name: String,
   email: String,
   password: String,
-  role: { type: String, default: "sales" } // 🟢 admin / sales
+  role: { type: String, default: "sales" }
 });
 
 const User = mongoose.model("User", userSchema);
@@ -30,7 +30,15 @@ const leadSchema = new mongoose.Schema({
   name: String,
   phone: String,
   status: { type: String, default: "New" },
-  assignedTo: String
+  assignedTo: String,
+
+  // 🟢 NOTES (NEW)
+  notes: [
+    {
+      text: String,
+      date: { type: Date, default: Date.now }
+    }
+  ]
 });
 
 const Lead = mongoose.model("Lead", leadSchema);
@@ -83,8 +91,11 @@ app.post("/login", async (req, res) => {
 // Create Lead
 app.post("/leads", auth, async (req, res) => {
   const lead = await Lead.create({
-    ...req.body,
-    assignedTo: req.user.email
+    name: req.body.name,
+    phone: req.body.phone,
+    status: req.body.status || "New",
+    assignedTo: req.user.email,
+    notes: []
   });
 
   res.json(lead);
@@ -94,18 +105,16 @@ app.post("/leads", auth, async (req, res) => {
 app.get("/leads", auth, async (req, res) => {
   let leads;
 
-  // 👑 Admin يشوف الكل
   if (req.user.role === "admin") {
     leads = await Lead.find();
   } else {
-    // 👤 Sales يشوف بتاعه بس
     leads = await Lead.find({ assignedTo: req.user.email });
   }
 
   res.json(leads);
 });
 
-// Update Lead
+// Update Lead (status / edit)
 app.put("/leads/:id", auth, async (req, res) => {
   const updated = await Lead.findByIdAndUpdate(
     req.params.id,
@@ -114,6 +123,19 @@ app.put("/leads/:id", auth, async (req, res) => {
   );
 
   res.json(updated);
+});
+
+// ================= 🟢 ADD NOTE =================
+app.put("/leads/:id/note", auth, async (req, res) => {
+  const lead = await Lead.findById(req.params.id);
+
+  lead.notes.push({
+    text: req.body.text
+  });
+
+  await lead.save();
+
+  res.json(lead);
 });
 
 // Delete Lead
